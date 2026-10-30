@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF分割ツール</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --text:#1d2330; --muted:#5d6678; --line:#dde1e8;
+  --accent:#1f6feb; --accent-text:#ffffff; --accent-soft:#e8f0fe;
+  --warn:#7a4f00; --warn-bg:#fff4d6; --err:#b42318; --err-bg:#fdecea; --ok:#16653c; --ok-bg:#e6f6ec;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#12151b; --card:#1a1f28; --text:#e8ebf1; --muted:#98a1b3; --line:#2b3340;
+    --accent:#5b9cff; --accent-text:#0b1220; --accent-soft:#1c2a44;
+    --warn:#f0c36a; --warn-bg:#2a2314; --err:#ff8a80; --err-bg:#2f1a19; --ok:#5fd397; --ok-bg:#15271e;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text); line-height:1.6;
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,system-ui,sans-serif;
+}
+main{max-width:640px; margin:0 auto; padding:20px 16px 56px}
+h1{font-size:1.4rem; margin:8px 0 4px}
+.lead{color:var(--muted); margin:0 0 20px; font-size:.92rem}
+.card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px}
+.card h2{font-size:1rem; margin:0 0 12px}
+.hidden{display:none !important}
+.sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+
+.drop{
+  display:block; text-align:center; padding:28px 12px; border:2px dashed var(--line); border-radius:12px;
+  color:var(--muted); cursor:pointer; background:var(--bg);
+}
+.drop:hover,.drop.over{border-color:var(--accent); color:var(--text)}
+#file:focus-visible + .drop{outline:3px solid var(--accent); outline-offset:2px}
+.fileinfo{margin-top:12px; font-size:.92rem; word-break:break-all}
+.fileinfo b{font-weight:600}
+
+.opt{
+  display:flex; gap:10px; align-items:flex-start; padding:12px; border:1px solid var(--line);
+  border-radius:10px; margin-bottom:8px; cursor:pointer;
+}
+.opt:has(input:checked){border-color:var(--accent); background:var(--accent-soft)}
+.opt.disabled{opacity:.45; cursor:not-allowed}
+.opt input{margin-top:5px}
+.opt small{display:block; color:var(--muted)}
+
+.fields{margin:12px 0 4px; display:grid; gap:12px}
+.field label{display:block; font-size:.88rem; color:var(--muted); margin-bottom:4px}
+.field input,.field select{
+  width:100%; min-height:44px; padding:8px 10px; font-size:1rem; color:var(--text);
+  background:var(--card); border:1px solid var(--line); border-radius:8px;
+}
+.field input:focus-visible,.field select:focus-visible{outline:3px solid var(--accent); outline-offset:1px}
+
+.note{padding:10px 12px; border-radius:10px; font-size:.9rem; margin:10px 0}
+.note.warn{background:var(--warn-bg); color:var(--warn)}
+.note.err{background:var(--err-bg); color:var(--err)}
+.note.ok{background:var(--ok-bg); color:var(--ok)}
+
+.plan{list-style:none; margin:8px 0 0; padding:0; max-height:320px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+.plan li{display:flex; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:.9rem}
+.plan li:last-child{border-bottom:0}
+.plan .nm{word-break:break-all}
+.plan .pg{white-space:nowrap; color:var(--muted)}
+.count{color:var(--muted); font-size:.9rem; margin:0 0 4px}
+
+button{
+  font:inherit; min-height:48px; padding:10px 18px; border-radius:10px; border:1px solid var(--accent);
+  background:var(--accent); color:var(--accent-text); font-weight:600; width:100%; cursor:pointer;
+}
+button.sub{background:transparent; color:var(--accent)}
+button:disabled{opacity:.45; cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+progress{width:100%; height:10px; margin-top:12px}
+.links{list-style:none; margin:12px 0 0; padding:0}
+.links li{padding:8px 0; border-bottom:1px solid var(--line); font-size:.92rem; word-break:break-all}
+.links li:last-child{border-bottom:0}
+.links a{color:var(--accent)}
+footer{color:var(--muted); font-size:.82rem; margin-top:20px}
+</style>
+</head>
+<body>
+<main>
+  <h1>PDF分割ツール</h1>
+  <p class="lead">長いPDFを章ごと・ページ数ごとに分割します。処理はブラウザの中だけで行い、PDFは外部に送信されません。</p>
+
+  <div id="notes" aria-live="polite"></div>
+
+  <section class="card">
+    <h2>1. PDFを選ぶ</h2>
+    <input id="file" class="sr-only" type="file" accept="application/pdf,.pdf">
+    <label id="drop" class="drop" for="file">ここをタップしてPDFを選ぶ<br><small>(パソコンならドラッグ&ドロップもできます)</small></label>
+    <div id="fileinfo" class="fileinfo"></div>
+  </section>
+
+  <section id="step2" class="card hidden">
+    <h2>2. 分け方を決める</h2>
+
+    <label class="opt" id="opt-outline-label">
+      <input type="radio" name="mode" value="outline">
+      <span>しおり(目次)で章ごとに分ける<small>PDFにしおりがあるときだけ使えます</small></span>
+    </label>
+    <label class="opt">
+      <input type="radio" name="mode" value="pages">
+      <span>ページ数ごとに分ける<small>例:50ページずつ</small></span>
+    </label>
+    <label class="opt">
+      <input type="radio" name="mode" value="ranges">
+      <span>ページ範囲を自分で指定する<small>例:1-30,31-80,81-</small></span>
+    </label>
+
+    <div class="fields">
+      <div class="field" id="f-level">
+        <label for="level">しおりの階層(1=章、2=節…)</label>
+        <select id="level"></select>
+      </div>
+      <div class="field" id="f-min">
+        <label for="minpages">これより短い章は次の章にまとめる(ページ数)</label>
+        <input id="minpages" type="number" inputmode="numeric" min="1" value="3">
+      </div>
+      <div class="field" id="f-pages">
+        <label for="pages">1ファイルのページ数</label>
+        <input id="pages" type="number" inputmode="numeric" min="1" value="50">
+      </div>
+      <div class="field" id="f-ranges">
+        <label for="ranges">ページ範囲(1始まり、カンマ区切り)</label>
+        <input id="ranges" type="text" inputmode="text" placeholder="1-30,31-80,81-" autocapitalize="off" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field" id="f-max">
+        <label for="maxpages">1ファイルの最大ページ数(0で制限なし)</label>
+        <input id="maxpages" type="number" inputmode="numeric" min="0" value="0">
+      </div>
+    </div>
+    <div id="planerr"></div>
+  </section>
+
+  <section id="step3" class="card hidden">
+    <h2>3. 分割する</h2>
+    <p id="plancount" class="count"></p>
+    <ul id="plan" class="plan"></ul>
+    <div style="height:14px"></div>
+    <button id="run" type="button">分割する</button>
+    <progress id="prog" class="hidden" value="0" max="1"></progress>
+  </section>
+
+  <section id="result" class="card hidden">
+    <h2>できあがり</h2>
+    <button id="zipbtn" type="button">ZIPでまとめて保存</button>
+    <ul id="links" class="links"></ul>
+  </section>
+
+  <footer>
+    自分が権利を持つPDF、またはDRMのないPDFでお使いください。パスワード付き・暗号化されたPDFは開けません。
+    OCR(文字認識)はできないため、画像だけのPDFは先に別のツールでOCRしてください。
+    ライブラリ(pdf.js / pdf-lib / JSZip)はCDNから読み込みますが、PDFの中身は送信されません。
+  </footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// ==LOGIC-START==
+// ページ番号はすべて0始まり。範囲は { s: 開始, e: 終了(含む), title }
+function sanitize(name, maxlen) {
+  maxlen = maxlen || 40;
+  name = String(name).replace(/[\\/:*?"<>|\r\n\t]/g, "_").trim();
+  return name.slice(0, maxlen) || "untitled";
+}
+
+function rangesFromOutline(entries, total, level) {
+  const seen = new Map();
+  for (const e of entries) {
+    if (e.level <= level && !seen.has(e.page)) seen.set(e.page, e.title);
+  }
+  const starts = Array.from(seen.entries()).sort(function (a, b) { return a[0] - b[0]; });
+  if (!starts.length) return [];
+  const ranges = [];
+  if (starts[0][0] > 0) ranges.push({ s: 0, e: starts[0][0] - 1, title: "前付け" });
+  starts.forEach(function (kv, i) {
+    const page = kv[0], title = kv[1];
+    const end = i + 1 < starts.length ? starts[i + 1][0] - 1 : total - 1;
+    if (end >= page) ranges.push({ s: page, e: end, title: title });
+  });
+  return ranges;
+}
+
+function rangesFixed(total, n) {
+  const out = [];
+  for (let s = 0; s < total; s += n) {
+    out.push({ s: s, e: Math.min(s + n, total) - 1, title: "part" + (Math.floor(s / n) + 1) });
+  }
+  return out;
+}
+
+function rangesManual(spec, total) {
+  const ranges = [];
+  const parts = String(spec).split(/[,、]/);
+  for (let part of parts) {
+    part = part.trim();
+    if (!part) continue;
+    const m = part.match(/^(\d+)?\s*-\s*(\d+)?$/) || part.match(/^(\d+)$/);
+    if (!m) throw new Error("範囲の書き方がおかしいです: '" + part + "'(例: 1-30,31-80,81-)");
+    let a, b;
+    if (part.indexOf("-") >= 0) {
+      a = m[1] ? parseInt(m[1], 10) : 1;
+      b = m[2] ? parseInt(m[2], 10) : total;
+    } else {
+      a = b = parseInt(part, 10);
+    }
+    a = Math.max(1, a);
+    b = Math.min(total, b);
+    if (a > b) throw new Error("範囲が逆か、ページ数(" + total + ")を超えています: '" + part + "'");
+    ranges.push({ s: a - 1, e: b - 1, title: a + "-" + b });
+  }
+  if (!ranges.length) throw new Error("ページ範囲を入力してください(例: 1-30,31-80,81-)");
+  return ranges;
+}
+
+function mergeSmall(ranges, minPages) {
+  const out = [];
+  let carry = null;
+  for (let r of ranges) {
+    let s = r.s, e = r.e, title = r.title;
+    if (carry) { s = carry.s; title = carry.title; carry = null; }
+    if (e - s + 1 < minPages) { carry = { s: s, e: e, title: title }; continue; }
+    out.push({ s: s, e: e, title: title });
+  }
+  if (carry) {
+    if (out.length) out[out.length - 1].e = carry.e;
+    else out.push(carry);
+  }
+  return out;
+}
+
+function splitLong(ranges, maxPages) {
+  if (!maxPages) return ranges;
+  const out = [];
+  for (const r of ranges) {
+    if (r.e - r.s + 1 <= maxPages) { out.push(r); continue; }
+    let k = 1;
+    for (let ps = r.s; ps <= r.e; ps += maxPages) {
+      out.push({ s: ps, e: Math.min(ps + maxPages, r.e + 1) - 1, title: r.title + "(その" + k + ")" });
+      k++;
+    }
+  }
+  return out;
+}
+
+function fileName(idx, r) {
+  return String(idx).padStart(2, "0") + "_" + sanitize(r.title) + "_p" + (r.s + 1) + "-" + (r.e + 1) + ".pdf";
+}
+
+// pdf.js のしおりを { level, title, page } の一覧にする
+async function loadOutline(pdf) {
+  const outline = await pdf.getOutline();
+  const entries = [];
+  async function walk(items, level) {
+    for (const it of items || []) {
+      let page = null;
+      try {
+        let dest = it.dest;
+        if (typeof dest === "string") dest = await pdf.getDestination(dest);
+        if (Array.isArray(dest)) {
+          const ref = dest[0];
+          if (ref && typeof ref === "object") page = await pdf.getPageIndex(ref);
+          else if (Number.isInteger(ref)) page = ref;
+        }
+      } catch (_) { page = null; }
+      if (page !== null && page >= 0) {
+        entries.push({ level: level, title: String(it.title || "").trim(), page: page });
+      }
+      if (it.items && it.items.length) await walk(it.items, level + 1);
+    }
+  }
+  if (outline) await walk(outline, 1);
+  return entries;
+}
+
+// 文字が選択できるPDFか、数ページ抜き出して確認
+async function hasText(pdf, samples) {
+  samples = samples || 8;
+  const total = pdf.numPages;
+  const idxs = new Set();
+  for (let i = 0; i < samples; i++) idxs.add(Math.floor(i * (total - 1) / Math.max(samples - 1, 1)));
+  let chars = 0;
+  for (const i of idxs) {
+    try {
+      const page = await pdf.getPage(i + 1);
+      const tc = await page.getTextContent();
+      chars += tc.items.map(function (x) { return x.str; }).join("").trim().length;
+    } catch (_) { /* 読めないページは数えない */ }
+  }
+  return chars / Math.max(idxs.size, 1) >= 30;
+}
+
+// pdf-lib で分割して、{ name, data, pages } の配列を返す
+async function splitDocument(PDFDocument, bytes, plan, onProgress) {
+  const src = await PDFDocument.load(bytes, { updateMetadata: false });
+  const files = [];
+  for (let i = 0; i < plan.length; i++) {
+    const r = plan[i];
+    const out = await PDFDocument.create();
+    const idx = [];
+    for (let p = r.s; p <= r.e; p++) idx.push(p);
+    const pages = await out.copyPages(src, idx);
+    pages.forEach(function (p) { out.addPage(p); });
+    const data = await out.save();
+    files.push({ name: fileName(i + 1, r), data: data, pages: r.e - r.s + 1 });
+    if (onProgress) await onProgress(i + 1, plan.length);
+  }
+  return files;
+}
+// ==LOGIC-END==
+
+// ---------------- ここから画面まわり ----------------
+(function () {
+  const $ = function (id) { return document.getElementById(id); };
+
+  if (typeof pdfjsLib === "undefined" || typeof PDFLib === "undefined" || typeof JSZip === "undefined") {
+    $("notes").innerHTML = '<div class="note err">ライブラリの読み込みに失敗しました。ネットワークを確認して、ページを読み込み直してください。</div>';
+    $("file").disabled = true;
+    return;
+  }
+  const CDN = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = CDN + "pdf.worker.min.js";
+
+  const state = { name: "", bytes: null, total: 0, entries: [], text: true, plan: [], files: [], urls: [] };
+
+  function note(kind, msg) {
+    const d = document.createElement("div");
+    d.className = "note " + kind;
+    d.textContent = msg;
+    $("notes").appendChild(d);
+  }
+  function clearNotes() { $("notes").innerHTML = ""; }
+  function fmtSize(n) {
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+    return Math.max(1, Math.round(n / 1024)) + " KB";
+  }
+  function getMode() {
+    const r = document.querySelector('input[name="mode"]:checked');
+    return r ? r.value : "pages";
+  }
+  function resetResults() {
+    state.urls.forEach(function (u) { URL.revokeObjectURL(u); });
+    state.urls = [];
+    state.files = [];
+    $("links").innerHTML = "";
+    $("result").classList.add("hidden");
+    $("prog").classList.add("hidden");
+  }
+  function resetAll() {
+    resetResults();
+    clearNotes();
+    state.bytes = null; state.total = 0; state.entries = []; state.plan = [];
+    $("fileinfo").textContent = "";
+    $("step2").classList.add("hidden");
+    $("step3").classList.add("hidden");
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    resetAll();
+    if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+      note("err", "PDFファイルを選んでください。");
+      return;
+    }
+    $("fileinfo").textContent = "読み込み中…";
+    try {
+      const buf = await file.arrayBuffer();
+      state.bytes = new Uint8Array(buf);
+      state.name = file.name.replace(/\.pdf$/i, "");
+      const pdf = await pdfjsLib.getDocument({
+        data: state.bytes.slice(),
+        cMapUrl: CDN + "cmaps/",
+        cMapPacked: true
+      }).promise;
+      state.total = pdf.numPages;
+      state.entries = await loadOutline(pdf);
+      state.text = await hasText(pdf);
+      await pdf.destroy();
+    } catch (err) {
+      state.bytes = null;
+      $("fileinfo").textContent = "";
+      if (err && err.name === "PasswordException") {
+        note("err", "パスワード付き(暗号化)のPDFは開けません。DRM付きの電子書籍も対象外です。");
+      } else {
+        note("err", "PDFを読み込めませんでした。壊れているか、対応していない形式かもしれません。");
+      }
+      return;
+    }
+
+    $("fileinfo").innerHTML = "<b></b> " + state.total + "ページ / " + fmtSize(file.size) + " / しおり " + state.entries.length + "件";
+    $("fileinfo").querySelector("b").textContent = file.name;
+
+    if (!state.text) {
+      note("warn", "文字がほとんど取れないPDF(画像だけ)のようです。AIに読ませるなら、先にOCRしておくのがおすすめです。このツールはOCRできませんが、分割だけならこのまま続けられます。");
+    }
+
+    // 階層の選択肢
+    const maxLevel = state.entries.reduce(function (m, e) { return Math.max(m, e.level); }, 1);
+    const sel = $("level");
+    sel.innerHTML = "";
+    for (let i = 1; i <= maxLevel; i++) {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = i + "階層目まで";
+      sel.appendChild(o);
+    }
+
+    // しおりの有無で既定を決める
+    const hasOutline = state.entries.length > 0;
+    const outlineRadio = document.querySelector('input[name="mode"][value="outline"]');
+    outlineRadio.disabled = !hasOutline;
+    $("opt-outline-label").classList.toggle("disabled", !hasOutline);
+    if (hasOutline) {
+      outlineRadio.checked = true;
+    } else {
+      document.querySelector('input[name="mode"][value="pages"]').checked = true;
+      note("warn", "しおり(目次)が見つかりませんでした。ページ数ごと、またはページ範囲の指定で分けられます。");
+    }
+
+    $("step2").classList.remove("hidden");
+    $("step3").classList.remove("hidden");
+    onOptionsChanged();
+  }
+
+  function intVal(id, def, min) {
+    const v = parseInt($(id).value, 10);
+    if (isNaN(v)) return def;
+    return Math.max(min, v);
+  }
+
+  function onOptionsChanged() {
+    if (!state.bytes) return;
+    resetResults();
+    const mode = getMode();
+    $("f-level").classList.toggle("hidden", mode !== "outline");
+    $("f-min").classList.toggle("hidden", mode !== "outline");
+    $("f-pages").classList.toggle("hidden", mode !== "pages");
+    $("f-ranges").classList.toggle("hidden", mode !== "ranges");
+    $("planerr").innerHTML = "";
+
+    let ranges = [];
+    try {
+      if (mode === "ranges") {
+        if ($("ranges").value.trim()) ranges = rangesManual($("ranges").value, state.total);
+      } else if (mode === "pages") {
+        ranges = rangesFixed(state.total, intVal("pages", 50, 1));
+      } else {
+        ranges = rangesFromOutline(state.entries, state.total, intVal("level", 1, 1));
+        ranges = mergeSmall(ranges, intVal("minpages", 3, 1));
+      }
+      ranges = splitLong(ranges, intVal("maxpages", 0, 0));
+    } catch (e) {
+      ranges = [];
+      const d = document.createElement("div");
+      d.className = "note err";
+      d.textContent = e.message;
+      $("planerr").appendChild(d);
+    }
+    state.plan = ranges;
+    renderPlan();
+  }
+
+  function renderPlan() {
+    const ul = $("plan");
+    ul.innerHTML = "";
+    state.plan.forEach(function (r, i) {
+      const li = document.createElement("li");
+      const nm = document.createElement("span");
+      nm.className = "nm";
+      nm.textContent = fileName(i + 1, r);
+      const pg = document.createElement("span");
+      pg.className = "pg";
+      pg.textContent = (r.e - r.s + 1) + "ページ";
+      li.appendChild(nm);
+      li.appendChild(pg);
+      ul.appendChild(li);
+    });
+    $("plancount").textContent = state.plan.length ? state.plan.length + "個のファイルに分けます" : "";
+    ul.classList.toggle("hidden", !state.plan.length);
+    $("run").disabled = !state.plan.length;
+  }
+
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 15000);
+  }
+
+  async function run() {
+    if (!state.bytes || !state.plan.length) return;
+    resetResults();
+    $("run").disabled = true;
+    const prog = $("prog");
+    prog.classList.remove("hidden");
+    prog.max = state.plan.length;
+    prog.value = 0;
+    try {
+      const files = await splitDocument(PDFLib.PDFDocument, state.bytes, state.plan, async function (done) {
+        prog.value = done;
+        await new Promise(function (r) { setTimeout(r, 0); });
+      });
+      state.files = files.map(function (f) {
+        const blob = new Blob([f.data], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        state.urls.push(url);
+        return { name: f.name, pages: f.pages, blob: blob, url: url };
+      });
+    } catch (err) {
+      prog.classList.add("hidden");
+      $("run").disabled = false;
+      const enc = err && (err.name === "EncryptedPDFError" || /encrypted/i.test(err.message || ""));
+      note("err", enc ? "暗号化されたPDFは分割できません。" : "分割中にエラーが出ました。PDFが大きすぎるか、壊れているかもしれません。");
+      return;
+    }
+    prog.classList.add("hidden");
+    $("run").disabled = false;
+
+    const ul = $("links");
+    ul.innerHTML = "";
+    state.files.forEach(function (f) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = f.url;
+      a.download = f.name;
+      a.textContent = f.name;
+      li.appendChild(a);
+      li.appendChild(document.createTextNode("(" + f.pages + "ページ)"));
+      ul.appendChild(li);
+    });
+    $("result").classList.remove("hidden");
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function saveZip() {
+    if (!state.files.length) return;
+    const btn = $("zipbtn");
+    btn.disabled = true;
+    btn.textContent = "ZIPを作っています…";
+    try {
+      const zip = new JSZip();
+      state.files.forEach(function (f) { zip.file(f.name, f.blob); });
+      const blob = await zip.generateAsync({ type: "blob", compression: "STORE" });
+      download(blob, sanitize(state.name, 60) + "_split.zip");
+    } catch (_) {
+      note("err", "ZIPの作成に失敗しました。下のリンクから1つずつ保存してください。");
+    }
+    btn.disabled = false;
+    btn.textContent = "ZIPでまとめて保存";
+  }
+
+  // イベント
+  $("file").addEventListener("change", function (e) { handleFile(e.target.files[0]); });
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+  });
+  drop.addEventListener("drop", function (e) {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  document.querySelectorAll('input[name="mode"]').forEach(function (r) { r.addEventListener("change", onOptionsChanged); });
+  ["level", "minpages", "pages", "ranges", "maxpages"].forEach(function (id) {
+    $(id).addEventListener("input", onOptionsChanged);
+    $(id).addEventListener("change", onOptionsChanged);
+  });
+  $("run").addEventListener("click", run);
+  $("zipbtn").addEventListener("click", saveZip);
+})();
+</script>
+</body>
+</html>
